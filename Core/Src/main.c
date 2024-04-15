@@ -19,7 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "string.h"
-#include <math.h>
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "RCFilter.h"
@@ -33,8 +33,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define PI	3.14159
-#define MAX_SAMPLES	1000
+#define MAX_SAMPLES	10000
 #define RES_12BIT	4096
+#define ADC_BUFFER_LENGTH	2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -65,6 +66,9 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 uint32_t sine_val[MAX_SAMPLES];
+uint32_t adc_buffer[ADC_BUFFER_LENGTH];
+uint8_t TxData[32];
+RCFilter lpf_adc;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,6 +91,14 @@ void get_sineval(){
 	for (int i = 0; i < MAX_SAMPLES; i++){
 		sine_val[i] = (sin(2 * PI * i / MAX_SAMPLES) + 1) * (RES_12BIT / 2);
 	}
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc){
+	RCfilter_Update(&lpf_adc, adc_buffer[0]);
+}
+
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc){
+	RCfilter_Update(&lpf_adc, adc_buffer[1]);
 }
 /* USER CODE END 0 */
 
@@ -127,14 +139,25 @@ int main(void)
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   get_sineval();
-  HAL_TIM_Base_Start(&htim7);
+  RCFilter_Init(&lpf_adc, 1000.0f, 0.0005f);
+
+
+
   HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sine_val, MAX_SAMPLES, DAC_ALIGN_12B_R);
+  HAL_TIM_Base_Start(&htim7);
+  HAL_ADC_Start_DMA(&hadc1, adc_buffer, ADC_BUFFER_LENGTH);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  int a=0;
   while (1)
   {
+	  a++;
+	  sprintf(TxData, "%d %d\r\n", adc_buffer[0], adc_buffer[1]);
+	  HAL_UART_Transmit(&huart3, TxData, 32, HAL_MAX_DELAY);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -216,7 +239,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -226,18 +249,9 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_3;
-  sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-  */
   sConfig.Channel = ADC_CHANNEL_4;
-  sConfig.Rank = 2;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
